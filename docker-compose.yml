@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  web:
+    build: ./web
+    container_name: login-web
+    ports:
+      - "8080:80"
+    environment:
+      DB_HOST: db
+      DB_NAME: login_system
+      DB_USER: root
+      DB_PASS: password
+    volumes:
+      - ./web:/var/www/html
+    depends_on:
+      - db
+    restart: always
+
+  db:
+    image: mysql:8.0
+    container_name: login-db
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: login_system
+    volumes:
+      - dbdata:/var/lib/mysql
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    restart: always
+
+volumes:
+  dbdata:
