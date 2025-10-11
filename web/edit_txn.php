@@ -24,7 +24,6 @@ if ($type === 'income') {
     $catTable = 'expense_categories';
 }
 
-// Fetch existing record
 $sql = "
     SELECT t.id, t.amount, t.note, t.created_at, t.category_id, c.icon, c.name AS category
     FROM $table t
@@ -40,10 +39,8 @@ if (!$txn) {
     die("Transaction not found or not yours.");
 }
 
-// Fetch categories for dropdown
 $cats = getCategories($pdo, $type);
 
-// On form submit
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_txn') {
     $amount = (float)($_POST['amount'] ?? 0);
     $category_id = (int)($_POST['category_id'] ?? 0);
@@ -70,15 +67,41 @@ function esc($s) { return htmlspecialchars($s ?? '', ENT_QUOTES); }
 <style>
   body { background:#0e1124; color:#fff; font-family:system-ui, sans-serif; }
   .card { background:#171d3e; border:1px solid #303671; border-radius:1rem; }
+
+  /* Make all text white */
+  *, .card, p, h4, strong, label, span, a, button, input, select, option, textarea {
+    color:#fff !important;
+  }
+
+  /* Inputs & selects */
   .form-control, .form-select {
-    background:#101534; border:1px solid #303671; color:#fff !important;
+    background:#101534 !important;
+    border:1px solid #303671;
+    color:#fff !important;
   }
   .form-control:focus, .form-select:focus {
-    background:#1b214d !important; color:#fff !important;
-    border-color:#6aa5ff !important; box-shadow:none !important;
+    background:#1b214d !important;
+    border-color:#6aa5ff !important;
+    box-shadow:none !important;
+    color:#fff !important;
   }
-  .btn-accent { background:#6aa5ff; color:#fff !important; border:none; }
-  .btn-accent:hover { background:#4a8be0 !important; color:#fff !important; }
+
+  /* Dropdown options */
+  option { background:#101534; color:#fff !important; }
+
+  /* Buttons */
+  .btn-accent { background:#6aa5ff; border:none; color:#fff !important; }
+  .btn-accent:hover { background:#4a8be0 !important; }
+
+  .btn-secondary {
+    background:#6c757d;
+    border:none;
+    color:#fff !important;
+  }
+  .btn-secondary:hover {
+    background:#5a6269 !important;
+    color:#fff !important;
+  }
 </style>
 </head>
 <body>

@@ -65,8 +65,39 @@ function esc($s) { return htmlspecialchars($s ?? '', ENT_QUOTES); }
 <style>
   body { background:#0e1124; color:#fff; font-family:system-ui, sans-serif; }
   .card { background:#171d3e; border:1px solid #303671; border-radius:1rem; }
-  .btn-accent { background:#6aa5ff; color:#fff !important; border:none; }
-  .btn-accent:hover { background:#4a8be0 !important; color:#fff !important; }
+
+  /* Force all text and elements to white */
+  *, .card, p, h4, strong, label, span, a, button, input, select, textarea {
+    color:#fff !important;
+  }
+
+  .list-group-item {
+    background:#1b1f3b !important;
+    color:#fff !important;
+    border-color:#303671 !important;
+  }
+
+  .btn-danger, .btn-secondary {
+    color:#fff !important;
+  }
+
+  .btn-accent { 
+    background:#6aa5ff; 
+    border:none; 
+    color:#fff !important; 
+  }
+  .btn-accent:hover { 
+    background:#4a8be0 !important; 
+    color:#fff !important; 
+  }
+
+  .btn-secondary {
+    background:#6c757d;
+    border:none;
+  }
+  .btn-secondary:hover {
+    background:#5a6269 !important;
+  }
 </style>
 </head>
 <body>
@@ -76,16 +107,16 @@ function esc($s) { return htmlspecialchars($s ?? '', ENT_QUOTES); }
     <p>Are you sure you want to delete this transaction?</p>
 
     <ul class="list-group mb-4">
-      <li class="list-group-item bg-dark text-white">
+      <li class="list-group-item">
         <strong>Amount: </strong> £<?= esc(number_format($txn['amount'], 2)) ?>
       </li>
-      <li class="list-group-item bg-dark text-white">
+      <li class="list-group-item">
         <strong>Category: </strong> <?= esc(($txn['icon'] ?? '') . ' ' . ($txn['category'] ?? '')) ?>
       </li>
-      <li class="list-group-item bg-dark text-white">
+      <li class="list-group-item">
         <strong>Date: </strong> <?= esc($txn['created_at']) ?>
       </li>
-      <li class="list-group-item bg-dark text-white">
+      <li class="list-group-item">
         <strong>Note: </strong> <?= esc($txn['note']) ?>
       </li>
     </ul>
