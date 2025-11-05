@@ -2,18 +2,17 @@ pipeline {
   agent any
 
   environment {
-    // Change these if you like
     APP_NAME = 'expense-tracker'
-    DOCKERHUB_CRED = 'dockerhub'       // Jenkins credential ID (optional)
-    DOCKERHUB_USER = 'muhammadsajid44' // your Docker Hub user
+    DOCKERHUB_CRED = 'dockerhub'
+    DOCKERHUB_USER = 'muhammadsajid44'
     IMAGE_NAME = "${DOCKERHUB_USER}/${APP_NAME}-web"
     IMAGE_TAG  = "${env.BRANCH_NAME ?: 'main'}-${env.BUILD_NUMBER}"
-    PUSH_IMAGE = 'false' // set true in job params or UI when you want to push
+    PUSH_IMAGE = 'false'
   }
 
   options {
     timestamps()
-    ansiColor('xterm')
+    // ansiColor('xterm')  <-- remove this line
   }
 
   stages {
@@ -25,7 +24,6 @@ pipeline {
 
     stage('PHP Lint') {
       steps {
-        // Lint all PHP using a container so we don't need php-cli installed on the agent
         sh '''
           set -e
           docker run --rm -v "$PWD:/app" -w /app php:8.2-cli bash -lc '
@@ -39,7 +37,6 @@ pipeline {
       steps {
         sh '''
           set -e
-          # Build the web image using web/Dockerfile as context root of the repo
           docker build -f web/Dockerfile -t "${IMAGE_NAME}:${IMAGE_TAG}" .
           docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "${IMAGE_NAME}:latest"
         '''
@@ -50,22 +47,13 @@ pipeline {
       steps {
         sh '''
           set -eux
-          # Bring up the stack for a quick check
           docker compose down || true
           docker compose up -d
-
-          # Wait a bit for MySQL to initialize and app to boot
           sleep 15
-
-          # Try curling the web container by name through its exposed port if mapped
-          # If your compose maps web to localhost:8080, curl that. Otherwise curl the container directly.
-          # The provided compose may expose port 80->8080; adjust if needed.
-          # Try localhost first:
           if curl -sSf http://localhost:8080 >/dev/null 2>&1; then
             echo "HTTP OK on localhost:8080"
           else
             echo "localhost:8080 not reachable, trying container-to-container..."
-            # Curl inside the web container targeting its own Apache
             WEB_CID=$(docker ps --format "{{.ID}} {{.Names}}" | awk "/web|sitev3-web|login-web/{print \$1; exit}")
             if [ -n "$WEB_CID" ]; then
               docker exec "$WEB_CID" bash -lc 'curl -sSf http://127.0.0.1/ > /dev/null'
@@ -100,11 +88,7 @@ pipeline {
   }
 
   post {
-    success {
-      echo "Build OK. Image: ${IMAGE_NAME}:${IMAGE_TAG}"
-    }
-    failure {
-      echo "Build failed. Check the logs above."
-    }
+    success { echo "Build OK. Image: ${IMAGE_NAME}:${IMAGE_TAG}" }
+    failure { echo "Build failed. Check the logs above." }
   }
 }
