@@ -17,9 +17,79 @@ pipeline {
     IMAGE_TAG    = "${env.APP_NAME}:${env.BUILD_NUMBER}"
     IMAGE_TAR    = "${env.APP_NAME}-${env.BUILD_NUMBER}.tar"
     APP_ZIP      = "${env.APP_NAME}-${env.BUILD_NUMBER}.zip"
+    DEBIAN_FRONTEND = 'noninteractive'
   }
 
   stages {
+    stage('Bootstrap Tools (PHP, Composer, Docker, git, zip)') {
+      steps {
+        sh '''
+          set -euxo pipefail
+          SUDO="$(command -v sudo || true)"
+          RUN(){ if [ -n "$SUDO" ]; then sudo bash -lc "$*"; else bash -lc "$*"; fi }
+
+          # Basic packages
+          RUN 'apt-get update -y'
+          RUN 'apt-get install -y ca-certificates curl gnupg lsb-release zip unzip git'
+
+          # --- PHP CLI & extensions for typical Laravel/vanilla PHP needs ---
+          if ! command -v php >/dev/null 2>&1; then
+            RUN 'apt-get install -y php-cli php-xml php-mbstring php-zip php-curl php-mysql'
+          fi
+
+          # --- Composer ---
+          if ! command -v composer >/dev/null 2>&1; then
+            echo "Installing Composer..."
+            curl -fsSL https://getcomposer.org/installer -o composer-setup.php
+            HASH_EXPECTED=$(curl -fsSL https://composer.github.io/installer.sig)
+            HASH_ACTUAL=$(php -r "echo hash_file(\"sha384\", \"composer-setup.php\");")
+            if [ "$HASH_EXPECTED" != "$HASH_ACTUAL" ]; then
+              echo "Composer installer corrupt"; exit 1
+            fi
+            RUN 'php composer-setup.php --install-dir=/usr/local/bin --filename=composer'
+            rm -f composer-setup.php
+          fi
+
+          # --- Docker Engine (if missing) ---
+          if ! command -v docker >/dev/null 2>&1; then
+            echo "Installing Docker Engine..."
+            RUN 'install -m 0755 -d /etc/apt/keyrings'
+            curl -fsSL https://download.docker.com/linux/$(. /etc/os-release; echo "$ID")/gpg | RUN 'gpg --dearmor -o /etc/apt/keyrings/docker.gpg'
+            RUN 'chmod a+r /etc/apt/keyrings/docker.gpg'
+            CODENAME="$(. /etc/os-release; echo "$VERSION_CODENAME")"
+            RUN 'echo \
+              "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+              https://download.docker.com/linux/$(. /etc/os-release; echo $ID) \
+              '$CODENAME' stable" \
+              > /etc/apt/sources.list.d/docker.list'
+            RUN 'apt-get update -y'
+            RUN 'apt-get install -y docker-ce docker-ce-cli containerd.io'
+            # Start docker if systemd available
+            if command -v systemctl >/dev/null 2>&1; then
+              RUN 'systemctl enable --now docker'
+            else
+              echo "NOTE: systemd not available; ensure Docker daemon is running."
+            fi
+          fi
+
+          # Add current user to docker group (helps on future builds)
+          if getent group docker >/dev/null 2>&1; then
+            USER_NOW="$(id -un)"
+            if ! id -nG "$USER_NOW" | grep -qw docker; then
+              echo "Adding $USER_NOW to docker group (will apply on next login/session)..."
+              RUN "usermod -aG docker $USER_NOW" || true
+            fi
+          fi
+
+          docker --version || { echo "Docker still not usable. Will try using sudo for docker commands."; true; }
+          php -v     || true
+          composer -V || true
+          git --version
+          zip -v     || true
+        '''
+      }
+    }
+
     stage('Checkout') {
       steps {
         deleteDir()
@@ -34,15 +104,15 @@ pipeline {
           set -euo pipefail
           if command -v php >/dev/null 2>&1; then
             echo "Running PHP lint..."
-            # Lint all PHP files in parallel where possible
-            if git ls-files '*.php' >/dev/null 2>&1; then
-              git ls-files '*.php' | xargs -I{} -P 4 sh -c 'php -l "{}" >/dev/null || (echo "Syntax error in {}" && exit 1)'
+            FILES=$(git ls-files "*.php" || true)
+            if [ -n "$FILES" ]; then
+              echo "$FILES" | xargs -I{} -P 4 sh -c 'php -l "{}" >/dev/null || (echo "Syntax error in {}" && exit 1)'
               echo "PHP syntax OK."
             else
               echo "No PHP files found to lint."
             fi
           else
-            echo "WARNING: php not found on agent—skipping lint."
+            echo "WARNING: php not found—skipping lint."
           fi
         '''
       }
@@ -70,9 +140,17 @@ pipeline {
       steps {
         sh '''
           set -euo pipefail
+          # If phpunit not present but composer available, try to add it locally for this build
+          if [ ! -x vendor/bin/phpunit ] && command -v composer >/dev/null 2>&1; then
+            if [ -f composer.json ]; then
+              echo "Ensuring phpunit is available (dev dependency)..."
+              composer require --dev phpunit/phpunit --with-all-dependencies || true
+            fi
+          fi
+
           if [ -x vendor/bin/phpunit ] || [ -f phpunit.xml ] || [ -f phpunit.xml.dist ]; then
             if [ -x vendor/bin/phpunit ]; then
-              echo "Running PHPUnit..."
+              echo "Running PHPUnit (vendor/bin/phpunit)..."
               vendor/bin/phpunit --log-junit junit.xml || exit 1
             elif command -v phpunit >/dev/null 2>&1; then
               echo "Running global phpunit..."
@@ -107,9 +185,16 @@ pipeline {
       steps {
         sh '''
           set -euo pipefail
+          DOCKER="docker"
           if ! command -v docker >/dev/null 2>&1; then
-            echo "ERROR: docker not found on agent. Please install Docker."
-            exit 1
+            echo "ERROR: docker CLI not found."; exit 1
+          fi
+
+          # If current user can't talk to daemon, try sudo docker
+          if ! ${DOCKER} info >/dev/null 2>&1; then
+            if command -v sudo >/dev/null 2>&1; then
+              DOCKER="sudo docker"
+            fi
           fi
 
           if [ ! -f Dockerfile ]; then
@@ -120,14 +205,13 @@ pipeline {
                 a2enmod rewrite
             COPY . /var/www/html/
             WORKDIR /var/www/html
-            # If you have composer.json, you can multi-stage build in your own Dockerfile later.
             EOF
           fi
 
           echo "Building image ${IMAGE_TAG}..."
-          docker build -t "${IMAGE_TAG}" .
+          ${DOCKER} build -t "${IMAGE_TAG}" .
           echo "Built image:"
-          docker images "${IMAGE_TAG}"
+          ${DOCKER} images "${IMAGE_TAG}"
         '''
       }
     }
@@ -136,8 +220,14 @@ pipeline {
       steps {
         sh '''
           set -euo pipefail
+          DOCKER="docker"
+          if ! ${DOCKER} info >/dev/null 2>&1; then
+            if command -v sudo >/dev/null 2>&1; then
+              DOCKER="sudo docker"
+            fi
+          fi
           echo "Saving Docker image to ${IMAGE_TAR}..."
-          docker save -o "${IMAGE_TAR}" "${IMAGE_TAG}"
+          ${DOCKER} save -o "${IMAGE_TAR}" "${IMAGE_TAG}"
           ls -lh "${IMAGE_TAR}"
         '''
       }
